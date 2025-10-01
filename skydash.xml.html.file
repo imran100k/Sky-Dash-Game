@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>SkyDash — Rewarded Ad Game (Demo)</title>
+<style>
+  :root{
+    --bg:#071028; --card:#0e2036; --accent:#ffb703; --accent2:#4cc9f0; --text:#e6f0ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
+  body{background:linear-gradient(180deg,var(--bg),#041428);color:var(--text);display:flex;align-items:center;justify-content:center;padding:12px}
+  .wrap{width:100%;max-width:980px}
+  .hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .hdr .brand{display:flex;align-items:center;gap:12px}
+  .logo{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#ff6b6b);display:flex;align-items:center;justify-content:center;font-weight:800;color:#051923}
+  .title{font-size:18px;font-weight:700}
+  .meta{font-size:13px;color:#9bb7d9}
+  .panel{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:14px; padding:12px; box-shadow:0 10px 30px rgba(2,6,23,0.6)}
+  canvas{width:100%;border-radius:10px;display:block;background:linear-gradient(180deg,#041426,#022036)}
+  .hud{display:flex;gap:8px;align-items:center;margin-top:8px}
+  .pill{background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:999px;font-weight:700}
+  .controls{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  button{background:var(--accent);border:0;padding:10px 12px;border-radius:10px;color:#051923;font-weight:800;cursor:pointer}
+  .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.05);color:var(--text)}
+  .small{font-size:13px;color:#9bb7d9}
+  .overlay{position:fixed;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(2,6,23,0.6),rgba(2,6,23,0.85));z-index:40;display:none}
+  .modal{background:linear-gradient(180deg,#072335,#042337);padding:18px;border-radius:12px;width:92%;max-width:520px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.6)}
+  .modal h2{margin:0 0 8px}
+  .muted{color:#9bb7d9}
+  .leader{margin-top:10px;text-align:left;max-height:160px;overflow:auto}
+  .leader table{width:100%;border-collapse:collapse}
+  .leader th,.leader td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:13px}
+  @media(min-width:900px){canvas{height:420px}} 
+  @media(max-width:899px){canvas{height:320px}}
+</style>
+<!-- Uncomment and add your AdExtra/GigaPub SDK in production -->
+<!-- <script src="https://adextra.io/sdk.js?app_id=YOUR_APP_ID"></script> -->
+<!-- <script src="https://ad.gigapub.tech/script?id=YOUR_ID"></script> -->
+</head>
+<body>
+  <div class="wrap">
+    <div class="hdr">
+      <div class="brand">
+        <div class="logo">SD</div>
+        <div>
+          <div class="title">SkyDash</div>
+          <div class="meta">Fly, collect coins, watch ads to revive — বাংলা UI</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div class="pill">Score: <span id="uiScore">0</span></div>
+        <div class="pill">High: <span id="uiHigh">0</span></div>
+        <div class="pill">Coins: <span id="uiCoins">0</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <canvas id="cv" width="900" height="420"></canvas>
+
+      <div class="hud">
+        <div class="small">Touch / Click to flap</div>
+        <div style="flex:1"></div>
+        <div class="small">Ad Revive: <button id="adReviveBtn" class="btn-ghost">Watch Ad</button></div>
+        <div><button id="startBtn">Start</button></div>
+      </div>
+      <div class="controls">
+        <button id="leaderBtn" class="btn-ghost">Leaderboard</button>
+        <button id="shopBtn" class="btn-ghost">Shop (spend coins)</button>
+        <button id="muteBtn" class="btn-ghost">🔊</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- overlay modal -->
+  <div id="overlay" class="overlay">
+    <div class="modal">
+      <h2 id="modalTitle">Game Over</h2>
+      <p class="muted" id="modalMsg">Score: <span id="modalScore">0</span></p>
+      <div style="height:10px"></div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button id="reviveBtn" class="btn">📺 Watch Ad to Revive</button>
+        <button id="coinReviveBtn" class="btn">💰 Spend 50 Coins to Revive</button>
+        <button id="retryBtn" class="btn-ghost">Retry</button>
+        <button id="closeBtn" class="btn-ghost">Close</button>
+      </div>
+      <div class="leader" id="leaderboardArea"></div>
+      <div style="height:8px"></div>
+      <div class="small muted">Note: In production use actual Ad SDK. This demo will attempt to call available SDK functions.</div>
+    </div>
+  </div>
+
+<script>
+/* SkyDash — polished endless flappy-runner style game
+   - Collect coins, avoid pipes
+   - Coins used for revive option (demo)
+   - Revive by watching an ad (calls AdExtra/GigaPub if available)
+   - Leaderboard & persistence via localStorage
+   - No auto-click, no fraud
+*/
+
+/* ======== CONFIG ======== */
+const CONFIG = {
+  coinReward: 5,         // coins per coin pickup
+  reviveCoinCost: 50,    // coins to spend for revive
+  adReviveRewardCoins: 10, // coins granted on ad success (optional)
+  gravity: 0.5,
+  flapPower: -9.0,
+  pipeGap: 150,
+  pipeSpacing: 160,
+  speedBase: 2.6,
+  coinSize: 14
+};
+
+/* ======== STATE & PERSISTENCE ======== */
+let state = {
+  score: 0,
+  high: Number(localStorage.getItem('skydash_high') || 0),
+  coins: Number(localStorage.getItem('skydash_coins') || 0),
+  leaderboard: JSON.parse(localStorage.getItem('skydash_lb') || '[]') // [{name,score,date}]
+};
+
+/* ======== UI refs ======== */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const uiScore = document.getElementById('uiScore');
+const uiHigh = document.getElementById('uiHigh');
+const uiCoins = document.getElementById('uiCoins');
+const overlay = document.getElementById('overlay');
+const modalScore = document.getElementById('modalScore');
+const leaderArea = document.getElementById('leaderboardArea');
+
+const startBtn = document.getElementById('startBtn');
+const reviveBtn = document.getElementById('reviveBtn');
+const retryBtn = document.getElementById('retryBtn');
+const closeBtn = document.getElementById('closeBtn');
+const adReviveBtn = document.getElementById('adReviveBtn');
+const coinReviveBtn = document.getElementById('coinReviveBtn');
+const leaderBtn = document.getElementById('leaderBtn');
+const shopBtn = document.getElementById('shopBtn');
+const muteBtn = document.getElementById('muteBtn');
+
+/* ======== GAME OBJECTS ======== */
+let player, pipes, coins, frame, running, paused, lastTimestamp, speed, score;
+let soundOn = true;
+
+/* ======== UTILS ======== */
+function persist(){
+  localStorage.setItem('skydash_high', state.high);
+  localStorage.setItem('skydash_coins', state.coins);
+  localStorage.setItem('skydash_lb', JSON.stringify(state.leaderboard));
+}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function rand(a,b){return a + Math.random()*(b-a);}
+
+/* ======== INIT UI ======== */
+function uiUpdate(){
+  uiScore.innerText = score;
+  uiHigh.innerText = state.high;
+  uiCoins.innerText = state.coins;
+  modalScore.innerText = score;
+}
+uiUpdate();
+
+/* ======== AUDIO (tiny) ======== */
+let audioCtx = null;
+function beep(freq, vol=0.06, t=0.06){
+  if(!soundOn) return;
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type='sine'; o.frequency.value=freq;
+    g.gain.value=vol;
+    o.start(); g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + t); o.stop(audioCtx.currentTime + t);
+  }catch(e){}
+}
+
+/* ======== GAME LOGIC ======== */
+function resetGame(){
+  player = { x:90, y: cv.height/2, vy:0, w:34, h:24 };
+  pipes = [];
+  coins = [];
+  frame = 0;
+  speed = CONFIG.speedBase;
+  score = 0;
+  running = false;
+  paused = false;
+  lastTimestamp = 0;
+}
+
+function startGame(){
+  resetGame();
+  running = true;
+  lastTimestamp = performance.now();
+  requestAnimationFrame(loop);
+  startBtn.innerText = 'Restart';
+}
+
+function flap(){
+  if(!running || paused) return;
+  player.vy = CONFIG.flapPower;
+  beep(700,0.04,0.06);
+}
+
+function spawnPipe(){
+  const topH = rand(40, cv.height - CONFIG.pipeGap - 120);
+  const gap = CONFIG.pipeGap;
+  pipes.push({ x: cv.width + 20, topH, gap });
+  // spawn coin near gap
+  const cx = cv.width + 20 + 60;
+  const cy = topH + gap/2;
+  coins.push({ x: cx, y: cy, collected:false });
+}
+
+function update(dt){
+  if(!running || paused) return;
+  frame += dt;
+  // physics
+  player.vy += CONFIG.gravity;
+  player.y += player.vy;
+  if(player.y + player.h > cv.height - 20){ player.y = cv.height - 20 - player.h; player.vy = 0; gameOver(); }
+  if(player.y < -20){ player.y = -20; player.vy = 0; }
+
+  // pipes movement
+  for(let i=pipes.length-1;i>=0;i--){
+    pipes[i].x -= speed;
+    if(pipes[i].x + 80 < -10) pipes.splice(i,1);
+  }
+  // coins movement & collection
+  for(let i=coins.length-1;i>=0;i--){
+    coins[i].x -= speed;
+    if(!coins[i].collected && rectHit(player, {x:coins[i].x-8, y:coins[i].y-8, w:16, h:16})){
+      coins[i].collected = true;
+      state.coins += CONFIG.coinReward;
+      beep(1100,0.04,0.04);
+      persist();
+    }
+    if(coins[i].x < -20) coins.splice(i,1);
+  }
+
+  // spawn logic
+  if(frame > 1000 - Math.min(score*6,700)){
+    spawnPipe();
+    frame = 0;
+  }
+
+  // collision check with pipes
+  for(const p of pipes){
+    // top rect
+    if(rectHit(player, {x:p.x, y:0, w:80, h:p.topH}) || rectHit(player, {x:p.x, y:p.topH + p.gap, w:80, h:cv.height - (p.topH+p.gap)-20})){
+      gameOver();
+      return;
+    }
+    // pass through?
+    if(!p.passed && p.x + 80 < player.x){
+      p.passed = true;
+      score++;
+      speed = CONFIG.speedBase + Math.min(score*0.03, 4.0);
+      beep(880,0.02,0.03);
+      if(score % 6 === 0){ // occasionally spawn coin cluster
+        for(let i=0;i<2;i++) coins.push({ x:cv.width + 80 + i*40, y: rand(140, cv.height-140), collected:false });
+      }
+    }
+  }
+
+  uiUpdate();
+}
+
+function rectHit(a,b){
+  return !(b.x > a.x + a.w || b.x + b.w < a.x || b.y > a.y + a.h || b.y + b.h < a.y);
+}
+
+function draw(){
+  // clear
+  ctx.clearRect(0,0,cv.width,cv.height);
+  // background gradient + simple parallax
+  // sky
+  const g = ctx.createLinearGradient(0,0,0,cv.height);
+  g.addColorStop(0,'#052033'); g.addColorStop(1,'#012236');
+  ctx.fillStyle = g; ctx.fillRect(0,0,cv.width,cv.height);
+  // distant cloud layer
+  ctx.fillStyle = 'rgba(255,255,255,0.03)';
+  for(let i=0;i<6;i++){
+    const cx = ((i*200 + performance.now()*0.02) % (cv.width+200)) - 100;
+    ctx.beginPath(); ctx.ellipse(cx, 70 + (i%2)*20, 80, 20, 0,0,Math.PI*2); ctx.fill();
+  }
+  // pipes
+  for(const p of pipes){
+    ctx.fillStyle = '#2b7a78';
+    ctx.fillRect(p.x, 0, 80, p.topH);
+    ctx.fillRect(p.x, p.topH + p.gap, 80, cv.height - (p.topH + p.gap) - 20);
+    // pipe highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    ctx.fillRect(p.x + 8, 6, 64, Math.min(16, p.topH));
+  }
+  // coins
+  for(const c of coins){
+    if(c.collected) continue;
+    ctx.fillStyle = '#ffd166';
+    ctx.beginPath(); ctx.arc(c.x, c.y, CONFIG.coinSize/2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    ctx.beginPath(); ctx.arc(c.x+3, c.y-3, 4,0,Math.PI*2); ctx.fill();
+  }
+  // player
+  ctx.fillStyle = '#ff6b6b';
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+  // ground
+  ctx.fillStyle = '#05323a';
+  ctx.fillRect(0, cv.height-20, cv.width, 20);
+  // HUD score small
+  ctx.fillStyle = '#cfefff'; ctx.font = '16px Inter, Arial';
+  ctx.fillText('Score: '+score, 12, 24);
+}
+
+/* main loop */
+let last = performance.now();
+function loop(now){
+  if(!running) return;
+  const dt = now - last; last = now;
+  update(dt);
+  draw();
+  if(running) requestAnimationFrame(loop);
+}
+
+/* game over */
+function gameOver(){
+  running = false;
+  overlay.style.display = 'flex';
+  document.getElementById('modalTitle').innerText = 'Game Over';
+  modalScore.innerText = score;
+  // update high & leaderboard
+  if(score > state.high){
+    state.high = score;
+    // ask name quick
+    const name = prompt('New Highscore! আপনার নাম লিখুন:', 'Player') || 'Player';
+    state.leaderboard.push({ name, score, date: new Date().toISOString() });
+    state.leaderboard.sort((a,b)=>b.score-a.score);
+    if(state.leaderboard.length>20) state.leaderboard.length = 20;
+  } else {
+    // optionally add to leaderboard if top 20
+    if(state.leaderboard.length < 20 || score > state.leaderboard[state.leaderboard.length-1].score){
+      const name = prompt('Leaderboard entry! নাম লিখুন:', 'Player') || 'Player';
+      state.leaderboard.push({ name, score, date: new Date().toISOString() });
+      state.leaderboard.sort((a,b)=>b.score-a.score);
+      if(state.leaderboard.length>20) state.leaderboard.length = 20;
+    }
+  }
+  persist();
+  renderLeaderboard();
+  uiUpdate();
+}
+
+/* revive by spending coins */
+coinReviveBtn.addEventListener('click', ()=>{
+  if(state.coins >= CONFIG.reviveCoinCost){
+    state.coins -= CONFIG.reviveCoinCost;
+    persist();
+    overlay.style.display = 'none';
+    // remove nearest pipe(s) and continue
+    pipes.splice(0,2);
+    running = true; last = performance.now(); requestAnimationFrame(loop);
+  } else {
+    alert('পর্যাপ্ত কয়েন নেই — Ads দেখে রিভাইভ করুন বা খেলুন সংগ্রহ করুন।');
+  }
+});
+
+/* revive by watching ad (calls AdExtra/GigaPub if available) */
+reviveBtn.addEventListener('click', () => {
+  reviveBtn.disabled = true; reviveBtn.innerText = 'Loading Ad...';
+  attemptShowRewardedAd()
+    .then(success => {
+      reviveBtn.disabled = false; reviveBtn.innerText = '📺 Watch Ad to Revive';
+      if(success){
+        // grant small coin reward and resume
+        state.coins += CONFIG.adReviveRewardCoins;
+        persist();
+        overlay.style.display = 'none';
+        pipes.splice(0,3);
+        running = true; last = performance.now(); requestAnimationFrame(loop);
+        uiUpdate();
+        alert('Ad সফল! রিভাইভ ও কয়েন পুরস্কার যোগ করা হয়েছে।');
+      } else {
+        alert('Ad লোড বা দেখার সমস্যা হয়েছে। পরে চেষ্টা করুন।');
+      }
+    })
+    .catch(err => { reviveBtn.disabled = false; reviveBtn.innerText = '📺 Watch Ad to Revive'; console.error(err); alert('Ad error'); });
+});
+
+/* Attempt to call provider ad SDK */
+// Returns Promise<boolean> resolved true on success
+function attemptShowRewardedAd(){
+  return new Promise((resolve, reject) => {
+    // Try AdExtra style
+    if(typeof window.showAdExtra === 'function'){
+      try{
+        window.showAdExtra('rewarded').then(()=>resolve(true)).catch(()=>resolve(false));
+        return;
+      }catch(e){ /* fallthrough */ }
+    }
+    // Try Giga style
+    if(typeof window.showGiga === 'function'){
+      try{
+        window.showGiga('main').then(()=>resolve(true)).catch(()=>resolve(false));
+        return;
+      }catch(e){ /* fallthrough */ }
+    }
+    // No SDK available — DO NOT simulate real ad in production.
+    // We provide a safe dialog for demo only.
+    const ok = confirm('Ad SDK পাওয়া যায়নি। ডেভ মোডে সিমুলেটেড ad চালাবেন? (প্রোডাকশনে নিষিদ্ধ)');
+    if(!ok) return resolve(false);
+    // simulated demo ad (3s)
+    let t = 0; reviveBtn.innerText = 'Simulating ad... 3';
+    const timer = setInterval(()=>{
+      t++;
+      reviveBtn.innerText = 'Simulating ad... ' + (3 - t);
+      if(t>=3){ clearInterval(timer); reviveBtn.innerText = '📺 Watch Ad to Revive'; resolve(true); }
+    }, 1000);
+  });
+}
+
+/* UI control handlers */
+startBtn.addEventListener('click', ()=>{ startGame(); overlay.style.display='none'; });
+retryBtn.addEventListener('click', ()=>{ overlay.style.display='none'; startGame(); });
+closeBtn.addEventListener('click', ()=>{ overlay.style.display='none'; });
+adReviveBtn.addEventListener('click', ()=>{ // quick ad from HUD
+  attemptShowRewardedAd().then(ok=>{
+    if(ok){ state.coins += CONFIG.adReviveRewardCoins; persist(); uiUpdate(); alert('Ad সফল — কয়েন যোগ হয়েছে।'); }
+    else alert('Ad সফল হয়নি।');
+  });
+});
+leaderBtn.addEventListener('click', ()=>{ renderLeaderboard(); overlay.style.display='flex'; });
+shopBtn.addEventListener('click', ()=>{ const buy = confirm('Buy 200 coins for demo 10৳? (Demo only)'); if(buy){ state.coins+=200; persist(); uiUpdate(); alert('Coins যোগ করা হয়েছে (demo)'); }});
+muteBtn.addEventListener('click', ()=>{ soundOn = !soundOn; muteBtn.innerText = soundOn ? '🔊' : '🔇'; });
+
+/* leader render */
+function renderLeaderboard(){
+  if(state.leaderboard.length===0){ leaderArea.innerHTML = '<div class="muted">No entries yet</div>'; return; }
+  let html = '<table><thead><tr><th>নাম</th><th>স্কোর</th><th>তারিখ</th></tr></thead><tbody>';
+  for(const e of state.leaderboard.slice(0,20)){
+    html += `<tr><td>${escapeHtml(e.name)}</td><td>${e.score}</td><td class="muted">${(new Date(e.date)).toLocaleString()}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  leaderArea.innerHTML = html;
+}
+
+/* simple html escape */
+function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+/* canvas resizing */
+function fitCanvas(){
+  const ratio = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.floor(w * ratio);
+  cv.height = Math.floor(h * ratio);
+  ctx.setTransform(ratio,0,0,ratio,0,0);
+}
+window.addEventListener('resize', fitCanvas);
+fitCanvas();
+
+/* input */
+window.addEventListener('pointerdown', ()=>{ flap(); });
+
+/* animation start state */
+resetGame();
+drawInitial();
+
+/* initial draw frame when not running */
+function drawInitial(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.fillStyle = '#031827'; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.fillStyle = '#9dd3ff'; ctx.font='20px Inter, Arial'; ctx.fillText('Press Start to Play', cv.width/2 - 80, cv.height/2 - 10);
+}
+
+/* start loop binding */
+function mainLoop(now){
+  // wrapper not used; we run loop with requestAnimationFrame in startGame()
+}
+
+/* Prevent accidental auto-play of audio on mobile until user interacts — done via beep on flap */
+
+/* final persist on unload */
+window.addEventListener('beforeunload', ()=>persist());
+
+</script>
+</body>
+</html>
